@@ -118,13 +118,14 @@ jobs:
 
       - name: Update GitHub Secret (requires PAT with repo permissions)
         env:
-          GH_PAT: ${{ secrets.GITHUB_PAT }}
+          GH_PAT: ${{ secrets.GH_PAT }}
           REPO: "${{ github.repository }}"
+          ARG_PWD: ${{ steps.argo-password.outputs.password }}
         run: |
-          ARG_PWD="${{steps.get_password.outputs.password}}"
-          # Update or create the secret in your repository
-          gh secret set ARGOCD_ADMIN_PASSWORD -b"$ARGO_PWD" --repo $REPO
-          continue-on-error: true  # Don't fail if GH_PAT is not set
+          echo "Updating ArgoCD admin password in repository secrets..."
+          echo "$ARGO_PWD" | gh secret set ARGOCD_ADMIN_PASSWORD --repo="$REPO" --body=-
+          echo "✅ Secret updated successfully!"
+        continue-on-error: true
 
       - name: Provide Access Instructions
         run: |
