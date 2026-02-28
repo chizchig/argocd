@@ -152,7 +152,7 @@ jobs:
           kubectl get applications -n argocd
           kubectl get ingress -n argocd
 
-            - name: Install Ngrok and Expose ArgoCD
+      - name: Install Ngrok and Expose ArgoCD
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
         run: |
