@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # managedFields:
+  name: trivial-service
+  namespace: argocd
+  labels:
+    app: trivial-app
+spec:
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+    protocol: TCP
+  selector:
+    app: trivial-app
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   labels:
+#     app: argocd-server
+#   managedFields:
+#   name: argocd-server-nodeport
+#   namespace: argocd
+# spec:
+#   ports:
+#   - nodePort: 30443
+#     port: 8080
+#     protocol: TCP
+#   selector:
+#     app.kubernetes.io/name: argocd-server
+#   type: NodePort

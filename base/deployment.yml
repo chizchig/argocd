@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivial-service-account
+  namespace: argocd
+imagePullSecrets:
+  - name: trivial-access-token
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivial-deployment
+  namespace: argocd
+  labels:
+    app: trivial-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: trivial-app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: trivial-app
+    spec:
+      serviceAccountName: trivial-service-account
+      imagePullSecrets:
+        - name: trivial-access-token
+      securityContext:
+        runAsUser: 1000  # Non-root user ID
+        runAsGroup: 1000  # Non-root group ID
+        fsGroup: 1000     # Ensure group ownership of mounted volumes
+      containers:
+        - name: coco
+          image: shadowhub/cocomaster:20240506044802
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx  # Mounting emptyDir here
+              readOnly: false
+          securityContext:
+            runAsUser: 0
+          resources:
+            limits:
+              cpu: 10m
+              memory: 1Gi
+            requests:
+              cpu: 2m
+              memory: 512Mi
+          # readinessProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: 80
+          #   initialDelaySeconds: 60
+          #   periodSeconds: 10
+          # livenessProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: 80
+            # initialDelaySeconds: 30
+            # periodSeconds: 5
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}  # Temporary storage for NGINX cache
+        - name: nginx-storage
+          emptyDir: {}  # This is an emptyDir volume for temporary storage

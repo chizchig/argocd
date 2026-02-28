@@ -1,0 +1,138 @@
+name: Deployment
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  skaffold:
+    name: 'Skaffold'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 'Checkout'
+        uses: actions/checkout@v4
+
+      - name: 'Verify System Architecture'
+        run: |
+          uname -a
+          arch
+
+      - name: 'Install Docker'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+          sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+          sudo systemctl start docker
+          sudo systemctl enable docker
+
+      - name: 'Install Minikube'
+        run: |
+          curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          chmod +x minikube
+          sudo mv minikube /usr/local/bin/
+
+      - name: 'Start Minikube'
+        run: |
+          minikube start --driver=docker
+
+      - name: 'Set up Kubeconfig for Minikube'
+        run: |
+          mkdir -p $HOME/.kube
+          minikube update-context
+
+      - name: 'Verify Kubernetes Context'
+        run: kubectl config current-context
+
+      - name: 'Download Skaffold'
+        run: |
+          curl -Lo skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64
+          chmod +x skaffold
+          sudo mv skaffold /usr/local/bin/
+
+      - name: 'Verify Skaffold Installation'
+        run: |
+          echo "Skaffold location: $(which skaffold)"
+          echo "Skaffold file type: $(file /usr/local/bin/skaffold)"
+          echo "Skaffold version:"
+          skaffold version
+          echo "Skaffold help:"
+          skaffold --help
+
+      - name: Remove Existing Skaffold Config
+        run: |
+          if [ -f "skaffold.yaml" ]; then
+            rm skaffold.yaml
+            echo "Removed existing skaffold.yaml."
+          fi
+
+      - name: Skaffold Initialization
+        run: skaffold init --skip-build --force
+
+      - name: Build Artifact
+        run: skaffold build
+
+      - name: Deploy Artifact
+        run: skaffold run
+
+      - name: Install ArgoCD
+        run: |
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+      - name: Check ArgoCD version
+        run: kubectl get deployments -n argocd -o jsonpath='{.items[*].spec.template.spec.containers[*].image}' | tr -s '[[:space:]]' '\n' | sort | uniq
+
+      - name: Wait for ArgoCD to be ready
+        run: |
+          echo "Waiting for ArgoCD deployments to be ready..."
+          kubectl wait --for=condition=available --timeout=600s deployment/argocd-server -n argocd || echo "argocd-server not found or not ready"
+          kubectl wait --for=condition=available --timeout=600s deployment/argocd-repo-server -n argocd || echo "argocd-repo-server not found or not ready"
+          
+          if kubectl get deployment argocd-application-controller -n argocd &> /dev/null; then
+            kubectl wait --for=condition=available --timeout=600s deployment/argocd-application-controller -n argocd || echo "argocd-application-controller not ready"
+          elif kubectl get deployment argocd-app-controller -n argocd &> /dev/null; then
+            kubectl wait --for=condition=available --timeout=600s deployment/argocd-app-controller -n argocd || echo "argocd-app-controller not ready"
+          else
+            echo "Application controller deployment not found. Please check ArgoCD installation."
+          fi
+          
+          echo "Checking overall ArgoCD status..."
+          kubectl get pods -n argocd
+
+      - name: Get ArgoCD admin password
+        run: |
+          ARGO_PWD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+          echo "ArgoCD admin password: $ARGO_PWD"
+          echo "ARGO_PWD=$ARGO_PWD" >> $GITHUB_ENV
+
+      - name: Apply ArgoCD configurations
+        run: |
+          kubectl apply -f argocd.yml
+          kubectl apply -f argocdserver.yml
+
+      - name: Provide ArgoCD Access Instructions
+        run: |
+          echo "To access ArgoCD locally, follow these steps:"
+          echo "1. Ensure you have kubectl installed and configured to access your cluster"
+          echo "2. Run the following command to set up port-forwarding:"
+          echo "   kubectl port-forward svc/argocd-server -n argocd 8081:80"
+          echo "3. Open your web browser and go to http://localhost:8081"
+          echo "4. Log in with the following credentials:"
+          echo "   Username: admin"
+          echo "   Password: $ARGO_PWD"
+
+      - name: Verify Deployment
+        run: |
+          kubectl get applications -n argocd
+          kubectl get ingress -n argocd
+          echo "Current ArgoCD password: $ARGO_PWD"
