@@ -90,15 +90,6 @@ jobs:
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
           kubectl apply --server-side=true -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-      - name: Configure ArgoCD for Ngrok
-        run: |
-          echo "Configuring ArgoCD to work behind Ngrok proxy..."
-          # Disable HTTPS redirect and insecure mode for proxy compatibility
-          kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.insecure":"true"}}'
-          # Restart server to apply changes
-          kubectl rollout restart deployment argocd-server -n argocd
-          kubectl rollout status deployment argocd-server -n argocd --timeout=120s
-
       - name: Check ArgoCD version
         run: kubectl get deployments -n argocd -o jsonpath='{.items[*].spec.template.spec.containers[*].image}' | tr -s '[[:space:]]' '\n' | sort | uniq
 
@@ -160,64 +151,38 @@ jobs:
           kubectl get applications -n argocd
           kubectl get ingress -n argocd
 
-      - name: Install Ngrok and Expose ArgoCD
+      - name: Deployment Summary
         env:
-          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
           ARGO_PWD: ${{ steps.argo-password.outputs.password }}
         run: |
-          echo "📦 Installing Ngrok..."
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt update && sudo apt install ngrok -y
-          
-          echo "🔑 Authenticating Ngrok..."
-          ngrok config add-authtoken $NGROK_AUTHTOKEN
-          
-          echo "🚀 Starting port-forward in background..."
-          nohup kubectl port-forward svc/argocd-server -n argocd 8080:80 > port-forward.log 2>&1 &
-          sleep 10
-          
-          echo "🌐 Starting Ngrok tunnel (auto-generated unique URL)..."
-          # REMOVE --name flag to get a unique URL every time
-          ngrok http 8080 --log=stdout > ngrok.log 2>&1 &
-          sleep 25
-          
-          echo "📋 Checking Ngrok logs..."
-          cat ngrok.log
-          
-          # Extract URL from logs - look for the URL pattern
-          NGROK_URL=$(grep -oE 'https://[a-zA-Z0-9_-]+\.ngrok(-free)?\.(app|dev|io)' ngrok.log | head -1)
-          
-          # Fallback to API if not found in logs
-          if [ -z "$NGROK_URL" ]; then
-            echo "Trying Ngrok API..."
-            sleep 5
-            NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' 2>/dev/null || echo "")
-          fi
-          
           echo ""
           echo "=========================================="
-          echo "🎉 ArgoCD Deployment Complete!"
+          echo "🎉 ArgoCD CI Deployment Complete!"
           echo "=========================================="
-          if [ -n "$NGROK_URL" ] && [ "$NGROK_URL" != "null" ]; then
-            echo "🔗 Public URL: $NGROK_URL"
-            echo ""
-            echo "👤 Username: admin"
-            echo "🔑 Password: $ARGO_PWD"
-            echo ""
-            echo "⚠️  This link will be active for 30 minutes or until this job ends"
-            echo ""
-            echo "💡 ArgoCD has been configured for proxy compatibility (insecure mode)"
-          else
-            echo "⚠️  URL extraction failed."
-            echo "👤 Username: admin"
-            echo "🔑 Password: $ARGO_PWD"
-            echo ""
-            echo "📍 Check your Ngrok dashboard for the active tunnel:"
-            echo "   https://dashboard.ngrok.com/tunnels/agents"
-          fi
+          echo ""
+          echo "⚠️  NOTE: This CI environment is temporary and will be destroyed shortly."
+          echo ""
+          echo "📋 To access ArgoCD LOCALLY, follow these steps:"
+          echo ""
+          echo "1️⃣  Install Minikube locally:"
+          echo "   https://minikube.sigs.k8s.io/docs/start/"
+          echo ""
+          echo "2️⃣  Start Minikube:"
+          echo "   minikube start --driver=docker"
+          echo ""
+          echo "3️⃣  Install ArgoCD:"
+          echo "   kubectl create namespace argocd"
+          echo "   kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+          echo ""
+          echo "4️⃣  Get admin password:"
+          echo "   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+          echo ""
+          echo "5️⃣  Port-forward (keep this running):"
+          echo "   kubectl port-forward svc/argocd-server -n argocd 8081:80"
+          echo ""
+          echo "6️⃣  Open browser:"
+          echo "   http://localhost:8081"
+          echo ""
           echo "=========================================="
-          
-          # Keep the tunnel open for 30 minutes
-          echo "⏳ Keeping tunnel open for 30 minutes..."
-          sleep 1800
+          echo "🔐 Password also saved to GitHub Secret: ARGOCD_ADMIN_PASSWORD"
+          echo "=========================================="
