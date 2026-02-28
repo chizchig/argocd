@@ -89,7 +89,15 @@ jobs:
         run: |
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
           kubectl apply --server-side=true -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+      - name: Configure ArgoCD for Ngrok
+        run: |
+          echo "Configuring ArgoCD to work behind Ngrok proxy..."
+          # Disable HTTPS redirect and insecure mode for proxy compatibility
+          kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.insecure":"true"}}'
+          # Restart server to apply changes
+          kubectl rollout restart deployment argocd-server -n argocd
+          kubectl rollout status deployment argocd-server -n argocd --timeout=120s
 
       - name: Check ArgoCD version
         run: kubectl get deployments -n argocd -o jsonpath='{.items[*].spec.template.spec.containers[*].image}' | tr -s '[[:space:]]' '\n' | sort | uniq
@@ -169,27 +177,21 @@ jobs:
           sleep 10
           
           echo "🌐 Starting Ngrok tunnel with unique name..."
-          # Generate unique tunnel name using run ID
           TUNNEL_NAME="argocd-${{ github.run_id }}-${{ github.run_attempt }}"
           ngrok http 8080 --name=$TUNNEL_NAME --log=stdout > ngrok.log 2>&1 &
-          sleep 20
+          sleep 25
           
           echo "📋 Checking Ngrok logs..."
           cat ngrok.log
           
-          # Try to extract URL from logs - look for different patterns
+          # Extract URL from logs
           NGROK_URL=$(grep -oE 'https://[a-zA-Z0-9_-]+\.ngrok(-free)?\.(app|dev|io)' ngrok.log | head -1)
           
-          # If that fails, try the API
+          # Fallback to API
           if [ -z "$NGROK_URL" ]; then
             echo "Trying Ngrok API..."
             sleep 5
             NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' 2>/dev/null || echo "")
-          fi
-          
-          # If still no URL, check if it's the "already online" error and extract from there
-          if [ -z "$NGROK_URL" ]; then
-            NGROK_URL=$(grep -oE 'https://[a-zA-Z0-9_-]+\.ngrok(-free)?\.(app|dev|io)' ngrok.log | head -1)
           fi
           
           ARGO_PWD="${{ steps.argo-password.outputs.password }}"
@@ -205,6 +207,9 @@ jobs:
             echo "🔑 Password: $ARGO_PWD"
             echo ""
             echo "⚠️  This link will be active for 30 minutes or until this job ends"
+            echo ""
+            echo "💡 If you see 'Too Many Redirects' error, the URL should work now"
+            echo "   (ArgoCD has been configured for proxy compatibility)"
           else
             echo "⚠️  URL extraction failed."
             echo "👤 Username: admin"
