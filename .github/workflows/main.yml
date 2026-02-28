@@ -195,6 +195,15 @@ jobs:
           fi
           
           ARGO_PWD="${{ steps.argo-password.outputs.password }}"
+
+      - name: Kill existing Ngrok tunnels
+        run: |
+          echo "🧹 Cleaning up existing Ngrok tunnels..."
+          # Try to stop any existing ngrok processes
+          pkill -f ngrok || true
+          sleep 2
+          # Or use ngrok API to stop tunnels if we can reach it
+          curl -s http://localhost:4040/api/tunnels || true    
           
           echo ""
           echo "=========================================="
