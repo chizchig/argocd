@@ -166,43 +166,39 @@ jobs:
           
           echo "🚀 Starting port-forward in background..."
           nohup kubectl port-forward svc/argocd-server -n argocd 8080:80 > port-forward.log 2>&1 &
-          sleep 5
-          
-          echo "🌐 Starting Ngrok tunnel..."
-          ngrok http 8080 --log=stdout > ngrok.log &
-          sleep 15
-          
-          echo "⏳ Waiting for Ngrok URL..."
           sleep 10
           
-          # Extract the public URL
-          NGROK_URL=$(grep -o 'https://[a-z0-9\-]*\.ngrok-free\.app' ngrok.log | head -1)
+          echo "🌐 Starting Ngrok tunnel with JSON output..."
+          ngrok http 8080 --log=stdout --log-format=json > ngrok.json 2>&1 &
+          sleep 25
           
+          echo "📋 Ngrok logs:"
+          cat ngrok.log || echo "No standard log"
+          echo "---"
+          cat ngrok.json || echo "No JSON log"
+          
+          # Try to extract URL from JSON logs
+          NGROK_URL=$(grep -o '"url":"https://[^"]*' ngrok.json | head -1 | cut -d'"' -f4)
+          
+          # Fallback to API
           if [ -z "$NGROK_URL" ]; then
-            echo "⚠️  Ngrok URL not found yet, waiting more..."
-            sleep 10
-            NGROK_URL=$(grep -o 'https://[a-z0-9\-]*\.ngrok-free\.app' ngrok.log | head -1)
+            echo "Trying Ngrok API..."
+            NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' 2>/dev/null || echo "")
           fi
           
-          # Get password
           ARGO_PWD="${{ steps.argo-password.outputs.password }}"
           
           echo ""
           echo "=========================================="
-          echo "🎉 ArgoCD is now publicly accessible!"
+          echo "🎉 ArgoCD Deployment Complete!"
           echo "=========================================="
-          echo ""
-          echo "🔗 Clickable URL: $NGROK_URL"
-          echo ""
-          echo "👤 Username: admin"
-          echo "🔑 Password: $ARGO_PWD"
-          echo ""
-          echo "⚠️  This link will be active for 30 minutes or until this job ends"
+          if [ -n "$NGROK_URL" ] && [ "$NGROK_URL" != "null" ]; then
+            echo "🔗 Public URL: $NGROK_URL"
+            echo "   Login: admin / $ARGO_PWD"
+          else
+            echo "⚠️  URL extraction failed. Check https://dashboard.ngrok.com/tunnels/agents"
+            echo "   Password: $ARGO_PWD"
+          fi
           echo "=========================================="
           
-          # Save URL to file for later steps
-          echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
-          
-          # Keep the tunnel open for 30 minutes
-          echo "⏳ Keeping tunnel open for 30 minutes..."
           sleep 1800
