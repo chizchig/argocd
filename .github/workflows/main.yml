@@ -163,6 +163,7 @@ jobs:
       - name: Install Ngrok and Expose ArgoCD
         env:
           NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+          ARGO_PWD: ${{ steps.argo-password.outputs.password }}
         run: |
           echo "📦 Installing Ngrok..."
           curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
@@ -176,34 +177,23 @@ jobs:
           nohup kubectl port-forward svc/argocd-server -n argocd 8080:80 > port-forward.log 2>&1 &
           sleep 10
           
-          echo "🌐 Starting Ngrok tunnel with unique name..."
-          TUNNEL_NAME="argocd-${{ github.run_id }}-${{ github.run_attempt }}"
-          ngrok http 8080 --name=$TUNNEL_NAME --log=stdout > ngrok.log 2>&1 &
+          echo "🌐 Starting Ngrok tunnel (auto-generated unique URL)..."
+          # REMOVE --name flag to get a unique URL every time
+          ngrok http 8080 --log=stdout > ngrok.log 2>&1 &
           sleep 25
           
           echo "📋 Checking Ngrok logs..."
           cat ngrok.log
           
-          # Extract URL from logs
+          # Extract URL from logs - look for the URL pattern
           NGROK_URL=$(grep -oE 'https://[a-zA-Z0-9_-]+\.ngrok(-free)?\.(app|dev|io)' ngrok.log | head -1)
           
-          # Fallback to API
+          # Fallback to API if not found in logs
           if [ -z "$NGROK_URL" ]; then
             echo "Trying Ngrok API..."
             sleep 5
             NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url' 2>/dev/null || echo "")
           fi
-          
-          ARGO_PWD="${{ steps.argo-password.outputs.password }}"
-
-      - name: Kill existing Ngrok tunnels
-        run: |
-          echo "🧹 Cleaning up existing Ngrok tunnels..."
-          # Try to stop any existing ngrok processes
-          pkill -f ngrok || true
-          sleep 2
-          # Or use ngrok API to stop tunnels if we can reach it
-          curl -s http://localhost:4040/api/tunnels || true    
           
           echo ""
           echo "=========================================="
@@ -217,8 +207,7 @@ jobs:
             echo ""
             echo "⚠️  This link will be active for 30 minutes or until this job ends"
             echo ""
-            echo "💡 If you see 'Too Many Redirects' error, the URL should work now"
-            echo "   (ArgoCD has been configured for proxy compatibility)"
+            echo "💡 ArgoCD has been configured for proxy compatibility (insecure mode)"
           else
             echo "⚠️  URL extraction failed."
             echo "👤 Username: admin"
