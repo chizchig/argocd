@@ -118,7 +118,7 @@ jobs:
 
       - name: Update GitHub Secret (requires PAT with repo permissions)
         env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_PAT: ${{ secrets.GH_TOKEN }}
           REPO: "${{ github.repository }}"
           ARG_PWD: ${{ steps.argo-password.outputs.password }}
         run: |
